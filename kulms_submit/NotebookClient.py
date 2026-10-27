@@ -55,4 +55,3 @@ class NotebookClient:
         if result.get('error') is not None:
             raise ValueError(result['error'])
         return result
-

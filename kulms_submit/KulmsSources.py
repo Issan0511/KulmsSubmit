@@ -55,6 +55,8 @@ def read_notes(path=None):
             notes = data['notes']
         else: raise ValueError()
         return source, [n for n in notes if not n.get('deletedAt')]
+    except KulmsError:
+        raise
     except (OSError, ValueError, TypeError, KeyError):
         raise KulmsError('保存済みノートを読み取れません。BEAMERPLUS_NOTEBOOK_PATHを確認してください。') from None
 
@@ -93,6 +95,8 @@ def render_note(snapshot, output):
         if result.returncode != 0 or not Path(temporary).read_bytes().startswith(b'%PDF-'):
             raise KulmsError('ノートのPDF化に失敗しました。元ノートは変更していません。')
         os.replace(temporary, output)
+    except OSError:
+        raise KulmsError('SpenNotesのPDF書き出しコマンドを起動できません。SPENNOTES_PYTHONの設定を確認してください。') from None
     except subprocess.TimeoutExpired:
         raise KulmsError('ノートのPDF化が時間内に完了しませんでした。') from None
     finally:
