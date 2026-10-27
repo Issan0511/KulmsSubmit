@@ -49,3 +49,32 @@ class NotebookContractTests(unittest.TestCase):
             run.return_value.returncode=1
             with self.assertRaises(KulmsError): render_note(self.folder/'note.json',output)
         self.assertEqual(output.read_bytes(),b'existing')
+
+    def test_new_exporter_path_and_legacy_python_alias(self):
+        with patch.dict('os.environ', {'NOTESYNC_PYTHON': '/new/python', 'SPENNOTES_PYTHON': '/old/python'}, clear=True):
+            self.assertEqual(export_command(), ['/new/python', '-m', 'notesync.NotebookSources'])
+        with patch.dict('os.environ', {'SPENNOTES_PYTHON': '/old/python'}, clear=True):
+            self.assertEqual(export_command(), ['/old/python', '-m', 'notesync.NotebookSources'])
+
+    def test_new_library_preferred_even_when_old_connection_exists(self):
+        from kulms_submit.KulmsSources import store_path
+        with patch.dict('os.environ', {}, clear=True), patch('kulms_submit.KulmsSources.notebook_data_base', return_value=self.root):
+            old = self.root / 'BeamerPlus Notes'
+            old.mkdir()
+            (old / 'notebooks.json').write_text('{}')
+            self.assertEqual(store_path(), old / 'notebooks.json')
+            current = self.root / 'NoteSync/library'
+            current.mkdir(parents=True)
+            (current / 'index.json').write_text('{}')
+            self.assertEqual(store_path(), current)
+
+    def test_old_editor_change_blocks_migrated_copy(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / 'notebooks.json'
+            old = Path(directory) / 'legacy'
+            old.mkdir()
+            (old / 'notebooks.json').write_text('changed')
+            source.write_text(json.dumps(dict(version=1, notes=[self.note])))
+            (source.parent / 'migration.json').write_text(json.dumps(dict(source=str(old), files={
+                'notebooks.json': hashlib.sha256(b'before').hexdigest()})))
+            with self.assertRaisesRegex(KulmsError, '旧アプリ'): read_notes(source)

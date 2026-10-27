@@ -8,7 +8,7 @@ import re
 import tempfile
 
 from .KulmsClient import KulmsError
-from .NotebookClient import NotebookClient, default_connection_file
+from .NotebookClient import NotebookClient, default_connection_file, notebook_data_base
 
 
 def note_digest(note):
@@ -19,15 +19,30 @@ def note_digest(note):
 
 
 def store_path():
-    explicit = os.environ.get('BEAMERPLUS_NOTEBOOK_PATH')
+    explicit = os.environ.get('NOTESYNC_NOTEBOOK_PATH') or os.environ.get('BEAMERPLUS_NOTEBOOK_PATH')
     if explicit: return Path(explicit)
-    root = default_connection_file().parent
-    return root / 'library' if (root / 'library/index.json').exists() else root / 'notebooks.json'
+    root = notebook_data_base()
+    for folder in (root / 'NoteSync', root / 'BeamerPlus Notes'):
+        if (folder / 'library/index.json').exists(): return folder / 'library'
+        if (folder / 'notebooks.json').exists(): return folder / 'notebooks.json'
+    return root / 'NoteSync/library'
+
+
+def check_migration(source):
+    """Public migration marker prevents using a copy changed by the old editor."""
+    marker = source.parent / 'migration.json'
+    if not marker.exists(): return
+    migration = json.loads(marker.read_text())
+    for relative, expected in migration['files'].items():
+        original = Path(migration['source']) / relative
+        if original.exists() and hashlib.sha256(original.read_bytes()).hexdigest() != expected:
+            raise KulmsError('旧アプリでノートが更新されています。NoteSyncで変更を統合してください。')
 
 
 def read_notes(path=None):
     try:
         source = Path(path or store_path()).resolve()
+        check_migration(source)
         index = source / 'index.json' if source.is_dir() else source
         data = json.loads(index.read_text())
         if data.get('version') == 2:
@@ -58,7 +73,7 @@ def read_notes(path=None):
     except KulmsError:
         raise
     except (OSError, ValueError, TypeError, KeyError):
-        raise KulmsError('保存済みノートを読み取れません。BEAMERPLUS_NOTEBOOK_PATHを確認してください。') from None
+        raise KulmsError('保存済みノートを読み取れません。NOTESYNC_NOTEBOOK_PATHを確認してください。') from None
 
 
 def list_sources():
@@ -75,7 +90,7 @@ def snapshot_note(note_id, *, path=None, sync=True):
             result = NotebookClient().call('save_note_snapshot', note_id=note_id)
             path = result['store_path']
         except (ValueError, KeyError):
-            raise KulmsError('ノートの最新保存を確認できません。BeamerPlusを更新後に再起動し、ペンを離してください。') from None
+            raise KulmsError('ノートの最新保存を確認できません。NoteSyncを更新後に再起動し、ペンを離してください。') from None
     source, notes = read_notes(path)
     matches = [n for n in notes if n.get('id') == note_id]
     if len(matches) != 1:
@@ -96,7 +111,7 @@ def render_note(snapshot, output):
             raise KulmsError('ノートのPDF化に失敗しました。元ノートは変更していません。')
         os.replace(temporary, output)
     except OSError:
-        raise KulmsError('SpenNotesのPDF書き出しコマンドを起動できません。SPENNOTES_PYTHONの設定を確認してください。') from None
+        raise KulmsError('NoteSyncのPDF書き出しコマンドを起動できません。NOTESYNC_PYTHONの設定を確認してください。') from None
     except subprocess.TimeoutExpired:
         raise KulmsError('ノートのPDF化が時間内に完了しませんでした。') from None
     finally:
@@ -108,9 +123,9 @@ def render_note(snapshot, output):
 def export_command():
     """Optional external notebook exporter; no import or runtime dependency on its GUI."""
     import shutil
-    python = os.environ.get('SPENNOTES_PYTHON')
+    python = os.environ.get('NOTESYNC_PYTHON') or os.environ.get('SPENNOTES_PYTHON')
     if python:
-        return [python, '-m', 'beamerplus.NotebookSources']
-    command = shutil.which('beamerplus-export')
+        return [python, '-m', 'notesync.NotebookSources']
+    command = shutil.which('notesync-export')
     if command: return [command]
-    raise KulmsError('ノートPDF化にはSpenNotesのbeamerplus-export、またはSPENNOTES_PYTHONが必要です。既存PDFはそのまま使えます。')
+    raise KulmsError('ノートPDF化にはNoteSyncのnotesync-export、またはNOTESYNC_PYTHONが必要です。既存PDFはそのまま使えます。')

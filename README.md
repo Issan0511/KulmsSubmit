@@ -1,6 +1,6 @@
 # KULMS Submit
 
-京大LMSの認証・課題要件確認・答案提出を扱う独立したMCP/CLIです。ノートアプリSpenNotesの内部Pythonモジュールには依存しません。
+京大LMSの認証・課題要件確認・答案提出を扱う独立したMCP/CLIです。ノートアプリNoteSyncの内部Pythonモジュールには依存しません。
 
 
 ## セットアップ
@@ -13,9 +13,9 @@ python3 -m venv .venv
 
 既に登録したID・パスワード・TOTP秘密鍵は再登録せず利用できます。OSキーストアのサービス名を維持しています。認証情報、答案、プロフィールはGitへ含めません。
 
-ノート原稿のPDF化を使う場合は、SpenNotes側の公開コマンド`beamerplus-export`をPATHへ追加するか、`SPENNOTES_PYTHON=/absolute/BeamerPlus/.venv/bin/python`を設定します。既存PDFの提出にはノートアプリのインストールは不要です。
+ノート原稿のPDF化を使う場合は、NoteSync側の公開コマンド`notesync-export`をPATHへ追加するか、`NOTESYNC_PYTHON=/absolute/NoteSync/.venv/bin/python`を設定します。既存PDFの提出にはノートアプリのインストールは不要です。
 
-SpenNotes v2の公開データは`library/index.json`からノートの相対パス・ハッシュを読み、`courses/<科目>/<ノートID>/note.json`を検証します。起動中アプリにはloopbackの`save_note_snapshot`で保存を要求します。内部Pythonモジュールのimport、ノート原本の直接書き換えはありません。ノートに付属する資料は答案PDFには自動結合しません。必要な提出資料だけを別ファイルとして選びます。
+NoteSync v2の公開データは`library/index.json`からノートの相対パス・ハッシュを読み、`courses/<科目>/<ノートID>/note.json`を検証します。起動中アプリにはloopbackの`save_note_snapshot`で保存を要求します。内部Pythonモジュールのimport、ノート原本の直接書き換えはありません。ノートに付属する資料は答案PDFには自動結合しません。必要な提出資料だけを別ファイルとして選びます。
 
 テスト: `.venv/bin/python -m unittest discover -s tests`。LMS通信・送信は模擬応答で検証します。
 
@@ -133,12 +133,12 @@ Codexへの登録例です。Pythonと状態フォルダは絶対パスにして
 codex mcp add kulms -- /absolute/KulmsSubmit/.venv/bin/python -m kulms_submit.KulmsMCP --state-dir /absolute/private/kulms-state
 ```
 
-認証・PDF化・受付確認を含む処理のため、`[mcp_servers.kulms]`の`tool_timeout_sec`には`180`を推奨します。設定方法は[公式MCPドキュメント](https://learn.chatgpt.com/docs/extend/mcp?surface=cli)を参照してください。登録後はMCP接続を更新します。ノートの最新保存に対応するため、BeamerPlusも更新後に再起動してください。
+認証・PDF化・受付確認を含む処理のため、`[mcp_servers.kulms]`の`tool_timeout_sec`には`180`を推奨します。設定方法は[公式MCPドキュメント](https://learn.chatgpt.com/docs/extend/mcp?surface=cli)を参照してください。登録後はMCP接続を更新します。ノートの最新保存に対応するため、NoteSyncも更新後に再起動してください。
 
 通常の流れは以下のとおりです。各手順を呼ぶのはMCPにつながったアシスタントで、ユーザーが手動でJSONを作る必要はありません。
 
 1. `list_kulms_courses`・`list_kulms_assignments`で提出先を確定し、`read_assignment_requirements`で実際の課題ページの指示を読む。
-2. `list_submission_sources`から保存済みノートを選ぶか、答案ファイルのパスを指定する。ノートの既定の取得元は`BeamerPlus Notes/library/`（旧版の`notebooks.json`にも対応）。別の保存先は`BEAMERPLUS_NOTEBOOK_PATH`で設定する。
+2. `list_submission_sources`から保存済みノートを選ぶか、答案ファイルのパスを指定する。ノートの既定の取得元は`NoteSync/library/`（旧版の`notebooks.json`にも対応）。別の保存先は`NOTESYNC_NOTEBOOK_PATH`で設定する。
 3. `prepare_submission`が、最新ノートの保存・全ページPDF化・答案コピー・要件資料のダウンロード・差し替える旧添付の退避・ファイル照合を行う。LMSへのアップロードや下書き保存はまだ行わない。`note_filename`または`output_names`で提出用コピーを命名でき、元ノート・元ファイルは変更しない。
 4. `read_submission_artifact`で課題添付と提出する全ページを読み、アシスタントが内容を判断する。`record_submission_review`に、ファイル名・記名要件・設問への対応・可読性と、課題固有の各要件の出典および答案中の根拠を記録する。未確認ページ、不足、判読困難、矛盾、未対応形式は合格にしない。ハッシュやページ数だけで内容を確認した扱いにはしない。
 5. 本人の完成・提出指示を受けたら`submit_reviewed_assignment`を呼ぶ。既にその答案の提出を依頼されていれば、同じ確認を繰り返す必要はない。課題・元ノート・答案コピー・プロフィール・既存提出の変更を再確認し、問題がなければアップロードから最終提出、受付と内容一致の検証まで行う。
