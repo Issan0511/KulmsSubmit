@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kulms-submit"
+version = "0.1.0"
+description = "KULMS requirements review and verified assignment submission MCP"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["mcp>=1.26,<2", "keyring>=25.6,<26", "pymupdf>=1.22"]
+
+[project.scripts]
+kulms = "kulms_submit.KulmsLogin:main"
+kulms-otp = "kulms_submit.KulmsOTPCLI:main"
+kulms-mcp = "kulms_submit.KulmsMCP:main"
+
+[tool.setuptools.packages.find]
+include = ["kulms_submit*"]
