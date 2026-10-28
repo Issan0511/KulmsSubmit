@@ -16,7 +16,8 @@ from urllib.parse import quote, urlencode, urljoin, urlsplit
 from urllib.request import HTTPCookieProcessor, HTTPRedirectHandler, Request, build_opener
 
 from .KulmsLogin import LoginCredentials, LoginError, LoginStore
-from .KulmsOTP import OTPStore, TOTPConfig, current_code
+from .KulmsOTP import OTPStore, TOTPConfig
+from .KulmsOTPGate import claim_otp
 
 
 LMS = 'https://lms.gakusei.kyoto-u.ac.jp'
@@ -29,6 +30,10 @@ _DOWNLOAD_LIMIT = 512 * 1024 * 1024
 
 class KulmsError(LoginError):
     """A displayable error that never contains authentication response data."""
+
+
+class KulmsSessionExpired(KulmsError):
+    """A confirmed expired session, not a generic authorization failure."""
 
 
 def _checked_url(url, hosts):
@@ -57,6 +62,8 @@ class _Redirects(HTTPRedirectHandler):
         self.hosts = {_LMS_HOST, _AUTH_HOST}
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if self.hosts == {_LMS_HOST} and urlsplit(newurl).hostname == _AUTH_HOST:
+            raise KulmsSessionExpired('認証期限が切れました。')
         _checked_url(newurl, self.hosts)
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
@@ -182,9 +189,13 @@ class KulmsClient:
                           headers=headers)
         try:
             response = self._opener.open(request, timeout=30)
+        except KulmsSessionExpired:
+            raise
         except HTTPError as exc:
             status = exc.code
             exc.close()
+            if status == 401 and not authentication:
+                raise KulmsSessionExpired('認証期限が切れました。') from None
             if status in (401, 403):
                 raise KulmsError('認証期限切れ、またはこの情報へのアクセス権がありません。') from None
             raise KulmsError(f'LMSからHTTP {status}が返されました。') from None
@@ -253,7 +264,7 @@ class KulmsClient:
                 if form is not None:
                     if otp_sent:
                         raise KulmsError('OTPが受け付けられませんでした。大学側の登録とPCの時計を確認してください。')
-                    code = current_code(self._otp, min(12, self._otp.period / 2))['code']
+                    code = claim_otp(self._otp)
                     page = self._submit(page, form, {'password': code}, AUTH + '/pub/otplogin.cgi')
                     otp_sent = True
                     continue
@@ -289,24 +300,33 @@ class KulmsClient:
         raise KulmsError('認証の画面遷移が多すぎるため停止しました。')
 
     def _json(self, path, parameters=None):
-        self.login()
-        url = LMS + path
-        if parameters:
-            url += '?' + urlencode(parameters)
-        try:
-            with self._open(url) as response:
-                if (urlsplit(response.url).path != path
-                        or 'json' not in response.headers.get('Content-Type', '').lower()):
-                    raise KulmsError('JSONの代わりにログイン画面などが返されました。')
-                body = response.read(_JSON_LIMIT + 1)
-        except (URLError, OSError, HTTPException):
-            raise KulmsError('APIの読み取り中に通信が途切れました。') from None
-        if len(body) > _JSON_LIMIT:
-            raise KulmsError('APIの応答が大きすぎます。コースを指定してください。')
-        try:
-            return json.loads(body)
-        except (ValueError, UnicodeError):
-            raise KulmsError('APIのJSONを読み取れませんでした。') from None
+        # GET only: one fresh authentication on a confirmed expiry. No write is retried.
+        for attempt in range(2):
+            self.login()
+            url = LMS + path
+            if parameters:
+                url += '?' + urlencode(parameters)
+            try:
+                with self._open(url) as response:
+                    if urlsplit(response.url).path in ('/portal/login', '/Shibboleth.sso/Login'):
+                        raise KulmsSessionExpired('認証期限が切れました。')
+                    if (urlsplit(response.url).path != path
+                            or 'json' not in response.headers.get('Content-Type', '').lower()):
+                        raise KulmsError('JSONの代わりにログイン画面などが返されました。')
+                    body = response.read(_JSON_LIMIT + 1)
+            except KulmsSessionExpired:
+                self.close()
+                if attempt == 0:
+                    continue
+                raise
+            except (URLError, OSError, HTTPException):
+                raise KulmsError('APIの読み取り中に通信が途切れました。') from None
+            if len(body) > _JSON_LIMIT:
+                raise KulmsError('APIの応答が大きすぎます。コースを指定してください。')
+            try:
+                return json.loads(body)
+            except (ValueError, UnicodeError):
+                raise KulmsError('APIのJSONを読み取れませんでした。') from None
 
     def _collection(self, path, name, *, paginate=False):
         result = []

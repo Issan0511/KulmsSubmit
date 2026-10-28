@@ -1,11 +1,13 @@
 """Standalone KULMS submission MCP. No model credentials or paid model calls."""
 import argparse
+from contextlib import asynccontextmanager
 import json
 from pathlib import Path
 
 from .KulmsWorkflow import Workflow, assignment_requirements
 from .KulmsSubmission import _context
 from .KulmsSources import list_sources
+from .KulmsSession import SessionPool
 
 INSTRUCTIONS = '''KULMS is the user's Kyoto University LMS. This server handles submission logistics without any paid model calls.
 Workflow: select the exact course and assignment, inspect requirements, select the saved notebook or answer files,
@@ -55,8 +57,17 @@ def create_server(root=None, *, workflow=None):
         coverage: Check
         readability: Check
 
-    flow = workflow or Workflow(root)
-    server = FastMCP('KULMS Submission', instructions=INSTRUCTIONS)
+    pool = SessionPool() if workflow is None else None
+    flow = workflow or Workflow(root, client_factory=pool)
+
+    @asynccontextmanager
+    async def lifespan(app):
+        try:
+            yield {}
+        finally:
+            if pool is not None: pool.close()
+
+    server = FastMCP('KULMS Submission', instructions=INSTRUCTIONS, lifespan=lifespan)
     local_read = ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False)
     remote_read = ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=True)
     prepare = ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=True)

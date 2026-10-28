@@ -2,7 +2,7 @@
 
 No model/API calls or background polling. Reviews are bound to assignment sources,
 student profile, original sources, and the precise outgoing snapshot. Writes use
-one fresh LMS session and persist an uncertain marker before the first mutation.
+one serialized LMS session and persist an uncertain marker before the first mutation.
 """
 from contextlib import contextmanager
 from datetime import datetime, timezone

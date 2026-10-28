@@ -86,7 +86,7 @@ class ClientTests(unittest.TestCase):
         client = self.client()
         opener = Opener(login_steps())
         client._opener = opener
-        with patch('kulms_submit.KulmsClient.current_code', return_value={'code': OTP}) as generate:
+        with patch('kulms_submit.KulmsClient.claim_otp', return_value=OTP) as generate:
             client.login()
             client.login()
         self.assertTrue(client.authenticated)
@@ -105,7 +105,7 @@ class ClientTests(unittest.TestCase):
     def test_rejected_otp_is_not_retried_and_errors_are_redacted(self):
         client = self.client()
         client._opener = Opener(login_steps(rejected=True))
-        with patch('kulms_submit.KulmsClient.current_code', return_value={'code': OTP}):
+        with patch('kulms_submit.KulmsClient.claim_otp', return_value=OTP):
             with self.assertRaises(KulmsError) as caught:
                 client.login()
         self.assertIn('OTP', str(caught.exception))
